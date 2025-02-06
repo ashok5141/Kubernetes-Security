@@ -818,105 +818,585 @@ http://3.86.197.158:30000/graph   # Open up a new web browser tab, and navigate 
 - Create a ConfigMap That Will Be Used to Manage the Alerting Rules.
 - Apply the Changes Made to `prometheus-rules-config-map.yml`
 - Delete the Prometheus Pod
-- 
+
+- Logging In and Setting up the Environment 
 ```bash
- 
+ sudo su -
+cd /root/prometheus
+./bootstrap.sh
+kubectl get pods -n monitoring
 ```
 
--
+- Create a ConfigMap That Will Be Used to Manage the Alerting Rules
+- Edit `prometheus-rules-config-map.yml` and add the Redis alerting rules. It should look like this when we're done:
 ```bash
-
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  creationTimestamp: null
+  name: prometheus-rules-conf
+  namespace: monitoring
+data:
+  redis_rules.yml: |
+    groups:
+    - name: redis_rules
+      rules:
+      - record: redis:command_call_duration_seconds_count:rate2m
+        expr: sum(irate(redis_command_call_duration_seconds_count[2m])) by (cmd, environment)
+      - record: redis:total_requests:rate2m
+        expr: rate(redis_commands_processed_total[2m])
+  redis_alerts.yml: |
+    groups:
+    - name: redis_alerts
+      rules:
+      - alert: RedisServerDown
+        expr: redis_up{app="media-redis"} == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Redis Server {{ $labels.instance }} is down!
+      - alert: RedisServerGone
+        expr:  absent(redis_up{app="media-redis"})
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: No Redis servers are reporting!
 ```
 
--
+- Apply the Changes Made to
 ```bash
-
+kubectl apply -f prometheus-rules-config-map.yml
 ```
--
+- Delete the Prometheus Pod
 ```bash
-
-```
-
--
-```bash
-
-```
-
--
-```bash
-
+kubectl get pods -n monitoring 
+kubectl delete pods <POD_NAME> -n monitoring
+kubectl delete pods prometheus-deployment-fd5569cf9-lml2d -n monitoring
+http://<IP>:30080
+http://54.145.118.56:30080 # Tried changin gthe ports prometheus-service.yml file port 8080, 9090, 30080 nothing works moved on
 ```
 
--
+## Troubleshooting and Repairing Your Cluster
+##### Repairing Failed Pods in Kubernetes
+> As a Kubernetes Administrator, you will come across broken pods. Being able to identify the issue and quickly fix the pods is essential to maintaining uptime for your applications running in Kubernetes. In this hands-on lab, you will be presented with a number of broken pods. You must identify the problem and take the quickest route to resolve the problem in order to get your cluster back up and running.
+- Identify the broken pods.
+- Find out why the pods are broken.
+- Repair the broken pods.
+- Ensure pod health by accessing the pod directly.
+
+- Identify the broken pods.
 ```bash
-
-```
--
-```bash
-
-```
-
--
-```bash
-
-```
-
--
-```bash
-
+kubectl get all --all-namespaces # command to see what’s in the cluster
+kubectl get svc,po,deploy -n web # To make this a little easier to read, you could run the following command to view services, pods, and deployments:
 ```
 
--
+- Find out why the pods are broken.
 ```bash
-
-```
--
-```bash
-
+kubectl describe pod POD_NAME -n web # Use the following command to inspect one of the broken pods and view the events, substituting the name of the pod for POD_NAME
+kubectl describe pod nginx-856876659f-sc96q  -n web # Error: ErrImagePull pulling image "nginx:191"
 ```
 
--
+- Repair the broken pods.
+- Where it says image: nginx:191, change it to image: nginx. Save and exit.
 ```bash
-
+kubectl edit deploy nginx -n web
+kubectl get po -n web # get pod name 
+kubectl edit nginx-856876659f-dgrfb  -n web # Image to nginx:191 to nginx, Directly repair the deploy
+kubectl get rs -n web # replicaset checing after changing the ngnix server, spanup new pod and terminated old pods
 ```
-
--
+- Ensure pod health by accessing the pod directly.
 ```bash
-
+kubectl get po -n web -o wide # Including IP Address, got IP from here 10.244.1.13
+kubectl run busybox --image=busybox --rm -it --restart=Never -- sh # Busybox pox
+wget -qO- POD_IP_ADDRESS:80  # Use the following command to access the pod directly via its container port, replacing POD_IP_ADDRESS with an appropriate pod IP
+wget -qO- 10.244.1.13:80
 ```
+## Doing Things "The Hard Way"
 
--
+##### Creating a Certificate Authority and TLS Certificates for Kubernetes
+> The various components of Kubernetes require certificates in order to authenticate with one another. Provisioning a certificate authority and using it to generate those certificates is a necessary step in bootstrapping a Kubernetes cluster from scratch. This activity will guide you through the process of provisioning a certificate authority and generating the certificates Kubernetes needs.
+- Here is the cluster architecture for which you will need to generate certificates. Note that these are not real servers, just values that we will use for the purposes of this activity.
+    - Controllers:
+        - Hostname: controller0.mylabserver.com, IP: 172.34.0.0
+        - Hostname: controller1.mylabserver.com, IP: 172.34.0.1
+    - Workers:
+        - Hostname: worker0.mylabserver.com, IP: 172.34.1.0
+        - Hostname: worker1.mylabserver.com, IP: 172.34.1.1
+    - Kubernetes API Load Balancer:
+        - Hostname: kubernetes.mylabserver.com, IP: 172.34.2.0
+- Process
+    - Provision the certificate authority (CA).
+    - Generate the necessary Kubernetes client certs, as well as kubelet client certs for two worker nodes.
+    - Generate the Kubernetes API server certificate.
+    - Generate a Kubernetes service account key pair.
+
+- Provision the Certificate Authority (CA)
 ```bash
+{
 
+cat > ca-config.json << EOF
+{
+  "signing": {
+    "default": {
+      "expiry": "8760h"
+    },
+    "profiles": {
+      "kubernetes": {
+        "usages": ["signing", "key encipherment", "server auth", "client auth"],
+        "expiry": "8760h"
+      }
+    }
+  }
+}
+EOF
+
+cat > ca-csr.json << EOF
+{
+  "CN": "Kubernetes",
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "US",
+      "L": "Portland",
+      "O": "Kubernetes",
+      "OU": "CA",
+      "ST": "Oregon"
+    }
+  ]
+}
+EOF
+
+cfssl gencert -initca ca-csr.json | cfssljson -bare ca
+
+}
 ```
--
+- Check the files created or by using this ```ls``` command.
+
+- Generate the Kubernetes Client Certificates and Kubelet Client Certificates for Two Worker Nodes
 ```bash
+{
 
+cat > admin-csr.json << EOF
+{
+  "CN": "admin",
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "US",
+      "L": "Portland",
+      "O": "system:masters",
+      "OU": "Kubernetes The Hard Way",
+      "ST": "Oregon"
+    }
+  ]
+}
+EOF
+
+cfssl gencert \
+  -ca=ca.pem \
+  -ca-key=ca-key.pem \
+  -config=ca-config.json \
+  -profile=kubernetes \
+  admin-csr.json | cfssljson -bare admin
+
+}
 ```
+- Check the files created or by using this ```ls``` command.
 
--
+- Generate the Kubelet Client Certificates
 ```bash
+{
+cat > worker0.mylabserver.com-csr.json << EOF
+{
+  "CN": "system:node:worker0.mylabserver.com",
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "US",
+      "L": "Portland",
+      "O": "system:nodes",
+      "OU": "Kubernetes The Hard Way",
+      "ST": "Oregon"
+    }
+  ]
+}
+EOF
 
+cfssl gencert \
+  -ca=ca.pem \
+  -ca-key=ca-key.pem \
+  -config=ca-config.json \
+  -hostname=172.34.1.0,worker0.mylabserver.com \
+  -profile=kubernetes \
+  worker0.mylabserver.com-csr.json | cfssljson -bare worker0.mylabserver.com
+
+cat > worker1.mylabserver.com-csr.json << EOF
+{
+  "CN": "system:node:worker1.mylabserver.com",
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "US",
+      "L": "Portland",
+      "O": "system:nodes",
+      "OU": "Kubernetes The Hard Way",
+      "ST": "Oregon"
+    }
+  ]
+}
+EOF
+
+cfssl gencert \
+  -ca=ca.pem \
+  -ca-key=ca-key.pem \
+  -config=ca-config.json \
+  -hostname=172.34.1.1,worker1.mylabserver.com \
+  -profile=kubernetes \
+  worker1.mylabserver.com-csr.json | cfssljson -bare worker1.mylabserver.com
+
+}
 ```
+- - Check the files created or by using this ```ls``` command.
 
--
+- Generate the Kube-Controller-Manager Client Certificate
 ```bash
+{
 
+cat > kube-controller-manager-csr.json << EOF
+{
+  "CN": "system:kube-controller-manager",
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "US",
+      "L": "Portland",
+      "O": "system:kube-controller-manager",
+      "OU": "Kubernetes The Hard Way",
+      "ST": "Oregon"
+    }
+  ]
+}
+EOF
+
+cfssl gencert \
+  -ca=ca.pem \
+  -ca-key=ca-key.pem \
+  -config=ca-config.json \
+  -profile=kubernetes \
+  kube-controller-manager-csr.json | cfssljson -bare kube-controller-manager
+
+}
 ```
+- Check the files created or by using this ```ls``` command.
 
--
+- Generate the Kube-Proxy Client Certificate
 ```bash
+{
 
+cat > kube-proxy-csr.json << EOF
+{
+  "CN": "system:kube-proxy",
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "US",
+      "L": "Portland",
+      "O": "system:node-proxier",
+      "OU": "Kubernetes The Hard Way",
+      "ST": "Oregon"
+    }
+  ]
+}
+EOF
+
+cfssl gencert \
+  -ca=ca.pem \
+  -ca-key=ca-key.pem \
+  -config=ca-config.json \
+  -profile=kubernetes \
+  kube-proxy-csr.json | cfssljson -bare kube-proxy
+
+}
 ```
--
+- Check the files created or by using this ```ls``` command.
+
+- Generate the Kube-Scheduler Client Certificate
 ```bash
+{
 
+cat > kube-scheduler-csr.json << EOF
+{
+  "CN": "system:kube-scheduler",
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "US",
+      "L": "Portland",
+      "O": "system:kube-scheduler",
+      "OU": "Kubernetes The Hard Way",
+      "ST": "Oregon"
+    }
+  ]
+}
+EOF
+
+cfssl gencert \
+  -ca=ca.pem \
+  -ca-key=ca-key.pem \
+  -config=ca-config.json \
+  -profile=kubernetes \
+  kube-scheduler-csr.json | cfssljson -bare kube-scheduler
+
+}
 ```
+- Check the files created or by using this ```ls``` command.
 
--
+- Generate the Kubernetes API Server Certificate
 ```bash
+{
 
+cat > kubernetes-csr.json << EOF
+{
+  "CN": "kubernetes",
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "US",
+      "L": "Portland",
+      "O": "Kubernetes",
+      "OU": "Kubernetes The Hard Way",
+      "ST": "Oregon"
+    }
+  ]
+}
+EOF
+
+cfssl gencert \
+  -ca=ca.pem \
+  -ca-key=ca-key.pem \
+  -config=ca-config.json \
+  -hostname=10.32.0.1,172.34.0.0,controller0.mylabserver.com,172.34.0.1,controller1.mylabserver.com,172.34.2.0,kubernetes.mylabserver.com,127.0.0.1,localhost,kubernetes.default \
+  -profile=kubernetes \
+  kubernetes-csr.json | cfssljson -bare kubernetes
+
+}
 ```
+- Check the files created or by using this ```ls``` command.
+
+- Generate a Kubernetes Service Account Key Pair
+```bash
+{
+
+cat > service-account-csr.json << EOF
+{
+  "CN": "service-accounts",
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "US",
+      "L": "Portland",
+      "O": "Kubernetes",
+      "OU": "Kubernetes The Hard Way",
+      "ST": "Oregon"
+    }
+  ]
+}
+EOF
+
+cfssl gencert \
+  -ca=ca.pem \
+  -ca-key=ca-key.pem \
+  -config=ca-config.json \
+  -profile=kubernetes \
+  service-account-csr.json | cfssljson -bare service-account
+
+}
+```
+- Check the files created or by using this ```ls``` command.
+
+##### Generating Kubeconfigs for a New Kubernetes Cluster
+> To set up a new Kubernetes cluster from scratch, we need to provide various components of the cluster with kubeconfig files so that they can locate and authenticate with the Kubernetes API. In this learning activity, you will generate a set of kubeconfigs that can be used to build a Kubernetes cluster.
+
+- We are going to create kubeconfig files for the following:
+    - Kubelet (one kubeconfig for each worker node)
+    - Kube-proxy
+    - Kube-controller-manager
+    - Kube-scheduler
+    - Admin
+- We will be using the following cluster architecture:
+    - Controllers:
+        - Hostname: controller0.mylabserver.com, IP: 172.34.0.0
+        - Hostname: controller1.mylabserver.com, IP: 172.34.0.1
+    - Workers:
+        - Hostname: worker0.mylabserver.com, IP: 172.34.1.0
+        - Hostname: worker1.mylabserver.com, IP: 172.34.1.1
+    - Kubernetes API Load Balancer:
+        - Hostname: kubernetes.mylabserver.com, IP: 172.34.2.0
+- Process
+    - Generate kubelet kubeconfigs for each worker node.
+    - Generate a kube-proxy kubeconfig.
+    - Generate a kube-controller-manager kubeconfig.
+    - Generate a kube-scheduler kubeconfig.
+    - Generate an admin kubeconfig.
+
+- Generate Kubelet Kubeconfigs for Each Worker Node
+```bash
+ls
+KUBERNETES_PUBLIC_ADDRESS=172.34.2.0 # Set an environment variable called KUBERNETES_PUBLIC_ADDRESS and set it equal to the IP address of the load balancer:
+
+for instance in worker0.mylabserver.com worker1.mylabserver.com; do
+  kubectl config set-cluster kubernetes-the-hard-way \
+    --certificate-authority=ca.pem \
+    --embed-certs=true \
+    --server=https://${KUBERNETES_PUBLIC_ADDRESS}:6443 \
+    --kubeconfig=${instance}.kubeconfig
+
+  kubectl config set-credentials system:node:${instance} \
+    --client-certificate=${instance}.pem \
+    --client-key=${instance}-key.pem \
+    --embed-certs=true \
+    --kubeconfig=${instance}.kubeconfig
+
+  kubectl config set-context default \
+    --cluster=kubernetes-the-hard-way \
+    --user=system:node:${instance} \
+    --kubeconfig=${instance}.kubeconfig
+
+  kubectl config use-context default --kubeconfig=${instance}.kubeconfig
+done
+```
+- Check the files created or by using this ```ls``` command.
+
+- Generate a Kube-Proxy Kubeconfig
+```bash
+KUBERNETES_PUBLIC_ADDRESS=172.34.2.0
+
+{
+  kubectl config set-cluster kubernetes-the-hard-way \
+    --certificate-authority=ca.pem \
+    --embed-certs=true \
+    --server=https://${KUBERNETES_PUBLIC_ADDRESS}:6443 \
+    --kubeconfig=kube-proxy.kubeconfig
+
+  kubectl config set-credentials system:kube-proxy \
+    --client-certificate=kube-proxy.pem \
+    --client-key=kube-proxy-key.pem \
+    --embed-certs=true \
+    --kubeconfig=kube-proxy.kubeconfig
+
+  kubectl config set-context default \
+    --cluster=kubernetes-the-hard-way \
+    --user=system:kube-proxy \
+    --kubeconfig=kube-proxy.kubeconfig
+
+  kubectl config use-context default --kubeconfig=kube-proxy.kubeconfig
+}
+```
+- Check the files created or by using this ```ls``` command.
+
+- Generate a Kube-Controller-Manager Kubeconfig
+```bash
+{
+  kubectl config set-cluster kubernetes-the-hard-way \
+    --certificate-authority=ca.pem \
+    --embed-certs=true \
+    --server=https://127.0.0.1:6443 \
+    --kubeconfig=kube-controller-manager.kubeconfig
+
+  kubectl config set-credentials system:kube-controller-manager \
+    --client-certificate=kube-controller-manager.pem \
+    --client-key=kube-controller-manager-key.pem \
+    --embed-certs=true \
+    --kubeconfig=kube-controller-manager.kubeconfig
+
+  kubectl config set-context default \
+    --cluster=kubernetes-the-hard-way \
+    --user=system:kube-controller-manager \
+    --kubeconfig=kube-controller-manager.kubeconfig
+
+  kubectl config use-context default --kubeconfig=kube-controller-manager.kubeconfig
+}
+```
+- Check the files created or by using this ```ls``` command.
+
+- Generate a Kube-Scheduler Kubeconfig
+```bash
+{
+  kubectl config set-cluster kubernetes-the-hard-way \
+    --certificate-authority=ca.pem \
+    --embed-certs=true \
+    --server=https://127.0.0.1:6443 \
+    --kubeconfig=kube-scheduler.kubeconfig
+
+  kubectl config set-credentials system:kube-scheduler \
+    --client-certificate=kube-scheduler.pem \
+    --client-key=kube-scheduler-key.pem \
+    --embed-certs=true \
+    --kubeconfig=kube-scheduler.kubeconfig
+
+  kubectl config set-context default \
+    --cluster=kubernetes-the-hard-way \
+    --user=system:kube-scheduler \
+    --kubeconfig=kube-scheduler.kubeconfig
+
+  kubectl config use-context default --kubeconfig=kube-scheduler.kubeconfig
+}
+```
+- Check the files created or by using this ```ls``` command.
+
+- Generate an Admin Kubeconfig
+```bash
+{
+  kubectl config set-cluster kubernetes-the-hard-way \
+    --certificate-authority=ca.pem \
+    --embed-certs=true \
+    --server=https://127.0.0.1:6443 \
+    --kubeconfig=admin.kubeconfig
+
+  kubectl config set-credentials admin \
+    --client-certificate=admin.pem \
+    --client-key=admin-key.pem \
+    --embed-certs=true \
+    --kubeconfig=admin.kubeconfig
+
+  kubectl config set-context default \
+    --cluster=kubernetes-the-hard-way \
+    --user=admin \
+    --kubeconfig=admin.kubeconfig
+
+  kubectl config use-context default --kubeconfig=admin.kubeconfig
+}
+```
+- Check the files created or by using this ```ls``` command.
 
 -
 ```bash
