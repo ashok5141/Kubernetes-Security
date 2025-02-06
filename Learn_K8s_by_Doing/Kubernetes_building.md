@@ -715,3 +715,311 @@ sudo apt install -y kubelet=1.18.5-00 # Install the latest version of kubelet:
 sudo apt-mark unhold kubelet # Make sure the kubelet package isn't on hold:
 sudo apt install -y kubelet=1.18.5-00 # Install the latest version of kubelet:
 ```
+
+## Logging and Monitering
+
+##### Moniter and Output Logs to a File in Kubernetes
+> You can troubleshoot broken pods quickly using the kubectl logs command. You can manipulate the output and save it to a file in order to capture important data. In this hands-on lab, you will be presented with a broken pod, and you must collect the logs and save them to a file in order to better understand the issue.
+- Identify the problematic pod in your cluster.
+- Collect the logs from the pod.
+- Output the logs to a file.
+```bash
+# After log ssh, ssh cloud_user@34.203.221.52
+kubectl get pods --all-namespaces  # pod3 is status is CrashLoopBackOff, Identify the problematic pod in your cluster.
+# kubectl logs <pod_name> -n <namespace_name>
+kubectl logs pod4 -n web # Collect the logs from the pod.
+kubectl logs pod4 -n web > broken-pod.log
+#Look like this -  2025/02/05 17:32:14 [error] 7#7: *1 open() "/etc/nginx/html/ealthz" failed (2: No such file or directory), client: 10.244.1.1, server: , request: "GET /ealthz HTTP/1.1", host: "10.244.1.3:8081"
+#10.244.1.1 - - [05/Feb/2025:17:32:14 +0000] "GET /ealthz HTTP/1.1" 404 153 "-" "kube-probe/1.23"
+```
+
+##### Configuring Prometheus to Use Service Discovery
+> Recently, your team has deployed Prometheus to the companies Kubernetes cluster. Now it is time to use service discovery to find targets for cAdvisor and the Kubernetes API. You have been tasked with modifying the Prometheus Config Map that is used to create the prometheus.yml file. Create the scrape config and add the jobs for kubernetes-apiservers and kubernetes-cadvisor. Then, propagate the changes to the Prometheus pod.
+- Configure the Service Discovery Targets
+- Apply the Changes to the Prometheus Configuration Map
+- Delete the Prometheus Pod
+
+- Logging In and Setting up the Environment
+```bash
+sudo su -
+cd /root/prometheus
+./bootstrap.sh
+kubectl get pods -n monitoring
+```
+
+- Configure the Service Discovery Targets
+- File name ```vi prometheus-config-map.yml```
+```bash
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-server-conf
+  labels:
+    name: prometheus-server-conf
+  namespace: monitoring
+data:
+  prometheus.yml: |-
+    global:
+      scrape_interval: 5s
+      evaluation_interval: 5s
+
+    scrape_configs:
+      - job_name: 'kubernetes-apiservers'
+
+        kubernetes_sd_configs:
+        - role: endpoints
+        scheme: https
+
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+          action: keep
+          regex: default;kubernetes;https
+
+      - job_name: 'kubernetes-cadvisor'
+
+        scheme: https
+
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+        kubernetes_sd_configs:
+        - role: node
+
+        relabel_configs:
+        - action: labelmap
+          regex: __meta_kubernetes_node_label_(.+)
+        - target_label: __address__
+          replacement: kubernetes.default.svc:443
+        - source_labels: [__meta_kubernetes_node_name]
+          regex: (.+)
+          target_label: __metrics_path__
+          replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+```
+
+- Apply the Changes to the Prometheus Configuration Map
+```bash
+kubectl apply -f prometheus-config-map.yml
+```
+- Delete the Prometheus Pod
+```bash
+kubectl get pods -n monitoring # List the pods to find the name of the Prometheus pod:
+kubectl delete pods <POD_NAME> -n monitoring # Delete the Prometheus pod:
+kubectl delete pods prometheus-deployment-6684c87bbc-ssmkq -n monitoring
+http://3.86.197.158:30000/graph   # Open up a new web browser tab, and navigate to the Expression browser. This will be at the public IP of the lab server, on port 30000:
+```
+
+##### Creating Alerting Rules
+> After deploying a Prometheus environment to our Kubernetes cluster, the team has decided to test its monitoring capabilities by configuring alerting of our Redis deployment. We have been tasked with writing two alerting rules. The first rule will fire an alert if any of the Redis pods are down for 10 minutes. The second alert will fire if there are no pods available for 1 minute.
+- Create a ConfigMap That Will Be Used to Manage the Alerting Rules.
+- Apply the Changes Made to `prometheus-rules-config-map.yml`
+- Delete the Prometheus Pod
+- 
+```bash
+ 
+```
+
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+
+-
+```bash
+
+```
+
+-
+```bash
+
+```
