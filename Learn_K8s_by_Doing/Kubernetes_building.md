@@ -1988,13 +1988,3 @@ kubectl get svc
 
 kubectl exec $POD_NAME -- curl <nginx service IP address>
 ```
-
--
-```bash
-
-```
-
--
-```bash
-
-```
